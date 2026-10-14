@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Gateway: one endpoint for OpenAI, Anthropic and Ollama</title>
+<meta name="description" content="FastAPI gateway that routes /chat/completions to multiple LLM providers via LiteLLM, with PII-redacted logs and a Redis circuit breaker. Open source prototype.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0B0B0C;
+    --surface: #141416;
+    --border: #26262A;
+    --text: #EDEBE6;
+    --muted: #8A877F;
+    --accent: #FF7A45;
+    --healthy: #7BC950;
+    --open: #E5484D;
+    --sans: "IBM Plex Sans", system-ui, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, monospace;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  .label {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  /* nav */
+  nav {
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: rgba(11, 11, 12, 0.92);
+    backdrop-filter: blur(8px);
+    z-index: 10;
+  }
+  .nav-in { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .brand { font-family: var(--mono); font-weight: 500; font-size: 15px; text-decoration: none; }
+  .brand span { color: var(--accent); }
+  .nav-links { display: flex; gap: 28px; align-items: center; }
+  .nav-links a { font-size: 14px; text-decoration: none; color: var(--muted); transition: color 0.15s; }
+  .nav-links a:hover { color: var(--text); }
+
+  /* buttons */
+  .btn {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 14px;
+    text-decoration: none;
+    padding: 12px 22px;
+    border-radius: 4px;
+    transition: transform 0.15s, background 0.15s, border-color 0.15s;
+  }
+  .btn-primary { background: var(--accent); color: #0B0B0C; font-weight: 500; }
+  .btn-primary:hover { background: #ff8f63; transform: translateY(-1px); }
+  .btn-ghost { border: 1px solid var(--border); color: var(--text); }
+  .btn-ghost:hover { border-color: var(--muted); }
+  .btn-sm { padding: 8px 16px; font-size: 13px; }
+
+  /* hero */
+  .hero { padding: 96px 0 88px; }
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.05fr 0.95fr;
+    gap: 56px;
+    align-items: center;
+  }
+  .hero h1 {
+    font-size: clamp(2.4rem, 5vw, 3.6rem);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -0.02em;
+    margin: 18px 0 20px;
+  }
+  .hero h1 em { font-style: normal; color: var(--accent); }
+  .hero p.sub { color: var(--muted); font-size: 19px; max-width: 34em; margin-bottom: 32px; }
+  .cta-row { display: flex; gap: 14px; flex-wrap: wrap; }
+
+  /* terminal */
+  .term {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  }
+  .term-bar {
+    display: flex; align-items: center; gap: 7px;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    background: #101012;
+  }
+  .term-bar i { width: 10px; height: 10px; border-radius: 50%; background: #3A3A3E; display: block; }
+  .term-bar i:first-child { background: var(--open); }
+  .term-bar i:nth-child(2) { background: #F5A524; }
+  .term-bar i:nth-child(3) { background: var(--healthy); }
+  .term-bar b {
+    font-family: var(--mono); font-size: 12px; font-weight: 400;
+    color: var(--muted); margin-left: 8px;
+  }
+  .term pre {
+    font-family: var(--mono);
+    font-size: 13.5px;
+    line-height: 1.7;
+    padding: 20px;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .term pre .c { color: var(--muted); }
+  .term pre .p { color: var(--accent); }
+  .term pre .g { color: var(--healthy); }
+  .term pre .r { color: var(--open); }
+  .term pre .b { color: #7AA2F7; }
+
+  /* pipeline */
+  .strip { border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--surface); }
+  .pipeline { display: flex; align-items: center; gap: 10px; padding: 26px 0; overflow-x: auto; }
+  .node {
+    font-family: var(--mono);
+    font-size: 13px;
+    padding: 9px 14px;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    white-space: nowrap;
+  }
+  .node.hot { border-color: var(--accent); color: var(--accent); }
+  .arrow { color: var(--muted); font-family: var(--mono); font-size: 13px; }
+
+  /* sections */
+  section.block { padding: 88px 0; }
+  .sec-head { max-width: 40em; margin-bottom: 48px; }
+  .sec-head h2 { font-size: clamp(1.7rem, 3vw, 2.2rem); font-weight: 700; letter-spacing: -0.01em; margin-top: 14px; }
+
+  .features { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 26px 24px;
+    background: var(--surface);
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover { border-color: #3A3A3E; transform: translateY(-2px); }
+  .card .num { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+  .card h3 { font-size: 18px; font-weight: 600; margin: 12px 0 10px; }
+  .card p { font-size: 15px; color: var(--muted); line-height: 1.6; }
+  .card code {
+    font-family: var(--mono); font-size: 13px;
+    color: var(--accent);
+  }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+  .dot.g { background: var(--healthy); }
+  .dot.o { background: var(--open); }
+  .dot.a { background: var(--accent); }
+
+  /* honesty strip */
+  .honest { background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .honest-in { display: flex; gap: 40px; padding: 30px 0; flex-wrap: wrap; align-items: baseline; }
+  .stat { font-family: var(--mono); }
+  .stat b { display: block; font-size: 22px; font-weight: 500; color: var(--text); }
+  .stat span { font-size: 12.5px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; }
+  .honest-note { font-size: 14px; color: var(--muted); max-width: 34em; }
+  .honest-note strong { color: var(--text); font-weight: 600; }
+
+  /* run */
+  .run-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+  .steps { counter-reset: s; list-style: none; }
+  .steps li {
+    counter-increment: s;
+    padding: 16px 0 16px 52px;
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    font-size: 15.5px;
+  }
+  .steps li::before {
+    content: counter(s, decimal-leading-zero);
+    position: absolute; left: 0; top: 16px;
+    font-family: var(--mono); font-size: 13px; color: var(--accent);
+  }
+  .steps code { font-family: var(--mono); font-size: 13.5px; color: var(--accent); }
+  .run-grid .term pre { font-size: 13px; }
+
+  /* cta */
+  .final { text-align: center; padding: 96px 0; }
+  .final h2 { font-size: clamp(1.8rem, 3.4vw, 2.5rem); font-weight: 700; letter-spacing: -0.01em; margin: 14px 0 16px; }
+  .final p { color: var(--muted); margin-bottom: 32px; }
+
+  footer { border-top: 1px solid var(--border); padding: 28px 0 40px; }
+  .foot-in { display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; font-family: var(--mono); font-size: 13px; color: var(--muted); }
+  .foot-in a { color: var(--muted); text-decoration: none; transition: color 0.15s; }
+  .foot-in a:hover { color: var(--accent); }
+
+  /* reveal: hidden only when JS is running */
+  .js .reveal { opacity: 0; transform: translateY(16px); transition: opacity 0.5s ease, transform 0.5s ease; }
+  .js .reveal.in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .js .reveal { opacity: 1; transform: none; transition: none; }
+    .btn, .card { transition: none; }
+  }
+
+  @media (max-width: 880px) {
+    .hero-grid, .run-grid { grid-template-columns: 1fr; gap: 40px; }
+    .features { grid-template-columns: 1fr; }
+    .hero { padding: 64px 0 56px; }
+    .nav-links a:not(.btn) { display: none; }
+    section.block { padding: 64px 0; }
+    .honest-in { gap: 22px 36px; }
+  }
+</style>
+<script>document.documentElement.className += " js";</script>
+</head>
+<body>
+
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="#">llm<span>_</span>gateway</a>
+    <div class="nav-links">
+      <a href="#how">How it works</a>
+      <a href="#run">Run it</a>
+      <a class="btn btn-ghost btn-sm" href="https://github.com/dgexplores/LLM_Gateway" target="_blank" rel="noopener">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <div class="label">Open source · FastAPI · Python</div>
+      <h1>One endpoint.<br><em>Every model.</em></h1>
+      <p class="sub">A LiteLLM-powered gateway that routes chat completions to OpenAI, Anthropic or Ollama, with PII redacted from every log line and a circuit breaker in front of failing providers.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="https://github.com/dgexplores/LLM_Gateway" target="_blank" rel="noopener">View source on GitHub</a>
+        <a class="btn btn-ghost" href="#run">Run it locally</a>
+      </div>
+    </div>
+    <div class="term" aria-label="Example request">
+      <div class="term-bar"><i></i><i></i><i></i><b>bash</b></div>
+      <pre><span class="c"># pick a provider with one header</span>
+curl localhost:8000/chat/completions \
+  -H <span class="p">"provider: anthropic"</span> \
+  -H <span class="p">"content-type: application/json"</span> \
+  -d <span class="p">'{"messages": [
+       {"role":"user","content":"hi"}
+     ]}'</span>
+
+<span class="c"># request logs leave the process as</span>
+<span class="r">[Request][anthropic]:</span>
+  content=<span class="g">"&lt;EMAIL_REDACTED&gt;"</span>
+  api_key=<span class="g">"&lt;API_KEY_REDACTED&gt;"</span></pre>
+    </div>
+  </div>
+</header>
+
+<div class="strip" id="how">
+  <div class="wrap">
+    <div class="pipeline" role="img" aria-label="Request flow: client, redact, circuit breaker, LiteLLM router, provider">
+      <span class="node">client</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node hot">redact</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node hot">circuit breaker</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node">litellm router</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node">gpt-4o / claude / llama3</span>
+      <span class="arrow">&rarr;</span>
+      <span class="node">response</span>
+    </div>
+  </div>
+</div>
+
+<section class="block">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="label">What it does</div>
+      <h2>Three moving parts, no framework maze.</h2>
+    </div>
+    <div class="features">
+      <div class="card reveal">
+        <div class="num">01</div>
+        <h3><span class="dot a"></span>Multi-provider routing</h3>
+        <p>One <code>POST /chat/completions</code> call, one <code>provider</code> header. Maps <code>openai</code>, <code>anthropic</code> and <code>ollama</code> to their model strings inside <code>main.py</code>.</p>
+      </div>
+      <div class="card reveal">
+        <div class="num">02</div>
+        <h3><span class="dot a"></span>PII redacted logs</h3>
+        <p>Emails, API keys and phone numbers are stripped from requests, responses and error text before a single line reaches stdout.</p>
+      </div>
+      <div class="card reveal">
+        <div class="num">03</div>
+        <h3><span class="dot a"></span>Redis circuit breaker</h3>
+        <p>Opens after 5 failures, sleeps 30 seconds, resets on success. Unreachable Redis fails open, so an outage never blocks traffic.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="honest">
+  <div class="wrap honest-in">
+    <div class="stat"><b>3</b><span>pytest tests green</span></div>
+    <div class="stat"><b>0</b><span>secrets in repo</span></div>
+    <div class="stat"><b>5 / 30s</b><span>breaker threshold</span></div>
+    <p class="honest-note"><strong>Prototype status.</strong> Core routing works and is tested. No auth, no rate limiting, no half-open probe yet. The README lists every limitation in plain text.</p>
+  </div>
+</div>
+
+<section class="block" id="run">
+  <div class="wrap">
+    <div class="sec-head reveal">
+      <div class="label">Run it</div>
+      <h2>Four commands to a local gateway.</h2>
+    </div>
+    <div class="run-grid">
+      <ol class="steps reveal">
+        <li>Install deps: <code>pip install -r requirements.txt</code></li>
+        <li>Copy <code>.env.example</code> to <code>.env</code> and fill your provider keys</li>
+        <li>Start Redis on <code>localhost:6379</code></li>
+        <li>Serve: <code>uvicorn main:app --reload</code>, then run <code>python -m pytest tests -q</code></li>
+      </ol>
+      <div class="term reveal">
+        <div class="term-bar"><i></i><i></i><i></i><b>test run</b></div>
+        <pre><span class="p">$</span> python -m pytest tests -q
+<span class="g">3 passed</span> in 0.08s
+
+<span class="p">$</span> python redact.py
+<span class="g">Redaction tests passed</span>
+
+<span class="p">$</span> curl localhost:8000/chat/completions \
+    -H <span class="p">"provider: openai"</span> ...
+<span class="g">200 OK</span> <span class="c">// route healthy</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="final">
+  <div class="wrap reveal">
+    <div class="label">MIT-friendly · built in public</div>
+    <h2>Read the source. Break it. Open an issue.</h2>
+    <p>Everything on this page maps to a file in the repository.</p>
+    <a class="btn btn-primary" href="https://github.com/dgexplores/LLM_Gateway" target="_blank" rel="noopener">dgexplores/LLM_Gateway</a>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot-in">
+    <span>llm_gateway · fastapi + litellm + redis</span>
+    <span><a href="https://github.com/dgexplores/LLM_Gateway" target="_blank" rel="noopener">github.com/dgexplores/LLM_Gateway</a></span>
+  </div>
+</footer>
+
+<script>
+  const io = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); }
+    }
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+</script>
+
+</body>
+</html>

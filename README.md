@@ -17,7 +17,8 @@ Status: prototype. Core routing works. Not prod-ready (no auth, no rate limiting
 | `main.py` | FastAPI app, provider map, redact + LiteLLM call |
 | `redact.py` | Standalone PII redact + inline self-test |
 | `middleware/circuit_breaker.py` | Redis failure counter + open-circuit guard |
-| `requirements.txt` | fastapi, uvicorn, litellm, redis, python-dotenv, sqlalchemy, psycopg2-binary |
+| `requirements.txt` | fastapi, uvicorn, litellm, redis, python-dotenv |
+| `docs/index.html` | GitHub Pages landing page for the repo |
 | `.env.example` | Required env keys, no secrets |
 
 ## Run
