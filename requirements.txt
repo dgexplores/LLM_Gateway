@@ -3,3 +3,4 @@ uvicorn
 litellm
 redis
 python-dotenv
+pytest
