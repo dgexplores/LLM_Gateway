@@ -8,7 +8,7 @@ Status: prototype. Core routing works. Not prod-ready (no auth, no rate limiting
 
 - `POST /chat/completions` with `provider` header (`openai` | `anthropic` | `ollama`). Maps to `gpt-4o`, `claude-3-5-sonnet-20240620`, `ollama/llama3` in `main.py`.
 - Redacts email / API key / phone patterns from request, response, and error logs before printing.
-- `CircuitBreakerMiddleware` returns 503 when Redis key `cb_status` is `OPEN`. Opens after 5 failures, 30s sleep window.
+- `CircuitBreakerMiddleware` returns 503 when Redis key `cb_status` is `OPEN`. Opens after 5 failures, 30s sleep window, resets count on success. Env-configured via `REDIS_HOST` / `REDIS_PORT`.
 
 ## Layout
 
@@ -35,10 +35,14 @@ Test redact:
 python redact.py  # expects "Redaction tests passed"
 ```
 
+Run tests:
+
+```bash
+python -m pytest tests -q
+```
+
 ## Limitations
 
-- Redis hardcoded `localhost:6379`, crashes when down.
-- Redact logic duplicated in `main.py` and `redact.py`.
-- `sqlalchemy` / `psycopg2-binary` listed but unused, no DB logging.
-- Breaker `failure_count` never resets, no half-open probe.
+- Breaker has no half-open probe: after the sleep window it closes fully.
+- Redis outage fails open (requests pass, breaker protection paused).
 - No auth, rate limiting, retry, cost tracking, Dockerfile, CI.

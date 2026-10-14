@@ -4,28 +4,18 @@ import os
 from dotenv import load_dotenv
 import redis
 from middleware.circuit_breaker import CircuitBreakerMiddleware
-import re
+from redact import redact
 
 load_dotenv()
 
-# Initialize Redis (assuming local default)
-redis_client = redis.Redis(host='localhost', port=6379, db=0)
+redis_client = redis.Redis(
+    host=os.getenv("REDIS_HOST", "localhost"),
+    port=int(os.getenv("REDIS_PORT", "6379")),
+    db=0,
+)
 
 app = FastAPI(title="LLM Gateway")
 app.add_middleware(CircuitBreakerMiddleware, redis_client=redis_client)
-
-PII_PATTERNS = {
-    "email": r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+",
-    "api_key": r"(sk-[a-zA-Z0-9]{32,})",
-    "phone": r"\b\d{10,}\b"
-}
-
-def redact(text: str) -> str:
-    if not isinstance(text, str):
-        return str(text)
-    for name, pattern in PII_PATTERNS.items():
-        text = re.sub(pattern, f"<{name.upper()}_REDACTED>", text)
-    return text
 
 @app.post("/chat/completions")
 async def chat_completion(request: Request, provider: str = Header("openai")):
