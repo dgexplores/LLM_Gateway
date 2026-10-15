@@ -95,3 +95,7 @@ python -m pytest tests -q     # 3 passed
 Engineers who want a reference implementation for the boring, load-bearing parts of shipping LLM features: provider abstraction, log hygiene, and failure containment. Read the source, fork it, open an issue.
 
 Built in public at [dgexplores/LLM_Gateway](https://github.com/dgexplores/LLM_Gateway).
+
+## License
+
+MIT. See [LICENSE](LICENSE).
